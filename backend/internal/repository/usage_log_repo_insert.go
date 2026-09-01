@@ -84,6 +84,7 @@ var usageLogInsertArgTypes = [...]string{
 	"numeric",     // account_stats_cost
 	"text",        // session_id
 	"text",        // billing_status
+	"boolean",     // native_compaction_v2
 	"timestamptz", // created_at
 }
 
@@ -285,6 +286,7 @@ func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor,
 			account_stats_cost,
 			session_id,
 			billing_status,
+			native_compaction_v2,
 			created_at
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
@@ -292,7 +294,7 @@ func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor,
 			$21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
 			$31, $32, $33, $34, $35, $36, $37, $38, $39, $40,
 			$41, $42, $43, $44, $45, $46, $47, $48, $49, $50,
-			$51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61
+			$51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62
 		)
 		ON CONFLICT (request_id, api_key_id) DO UPDATE
 		SET actual_cost = EXCLUDED.actual_cost,
@@ -753,12 +755,13 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 			account_stats_cost,
 			session_id,
 			billing_status,
+			native_compaction_v2,
 			created_at
 		) AS (VALUES `)
 
-	// Each batch row prepends the synthetic input_index before the 61
+	// Each batch row prepends the synthetic input_index before the 62
 	// usage-log column values.
-	args := make([]any, 0, len(keys)*62)
+	args := make([]any, 0, len(keys)*63)
 	argPos := 1
 	for idx, key := range keys {
 		if idx > 0 {
@@ -847,6 +850,7 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				account_stats_cost,
 				session_id,
 				billing_status,
+				native_compaction_v2,
 				created_at
 			)
 			SELECT
@@ -910,6 +914,7 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				account_stats_cost,
 				session_id,
 				billing_status,
+				native_compaction_v2,
 				created_at
 			FROM input
 			ON CONFLICT (request_id, api_key_id) DO UPDATE
@@ -1017,10 +1022,11 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			account_stats_cost,
 			session_id,
 			billing_status,
+			native_compaction_v2,
 			created_at
 		) AS (VALUES `)
 
-	args := make([]any, 0, len(preparedList)*61)
+	args := make([]any, 0, len(preparedList)*62)
 	argPos := 1
 	for idx, prepared := range preparedList {
 		if idx > 0 {
@@ -1106,6 +1112,7 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			account_stats_cost,
 			session_id,
 			billing_status,
+			native_compaction_v2,
 			created_at
 		)
 		SELECT
@@ -1169,6 +1176,7 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			account_stats_cost,
 			session_id,
 			billing_status,
+			native_compaction_v2,
 			created_at
 		FROM input
 		ON CONFLICT (request_id, api_key_id) DO UPDATE
@@ -1244,6 +1252,7 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 			account_stats_cost,
 			session_id,
 			billing_status,
+			native_compaction_v2,
 			created_at
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
@@ -1251,7 +1260,7 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 			$21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
 			$31, $32, $33, $34, $35, $36, $37, $38, $39, $40,
 			$41, $42, $43, $44, $45, $46, $47, $48, $49, $50,
-			$51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61
+			$51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62
 		)
 		ON CONFLICT (request_id, api_key_id) DO UPDATE
 		SET actual_cost = EXCLUDED.actual_cost,
@@ -1380,9 +1389,10 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 			modelMappingChain,
 			billingTier,
 			billingMode,
-			log.AccountStatsCost, // account_stats_cost
-			sessionID,            // session_id
-			billingStatus,        // billing_status
+			log.AccountStatsCost,   // account_stats_cost
+			sessionID,              // session_id
+			billingStatus,          // billing_status
+			log.NativeCompactionV2, // native_compaction_v2
 			createdAt,
 		},
 	}
