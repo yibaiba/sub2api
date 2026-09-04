@@ -901,6 +901,8 @@ func (s *OpenAIGatewayService) handleFailoverErrorResponsePassthrough(
 	canonicalModel := canonicalOpenAIAccountSchedulingModel(account, reqModel)
 	shouldDisable := s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body, canonicalModel)
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		ProxyID:              opsUpstreamProxyID(account),
+		ProxyName:            opsUpstreamProxyName(account),
 		Platform:             account.Platform,
 		AccountID:            account.ID,
 		AccountName:          account.Name,
@@ -967,6 +969,8 @@ func (s *OpenAIGatewayService) handleErrorResponsePassthrough(
 		_ = s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body, canonicalModel)
 	}
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		ProxyID:              opsUpstreamProxyID(account),
+		ProxyName:            opsUpstreamProxyName(account),
 		Platform:             account.Platform,
 		AccountID:            account.ID,
 		AccountName:          account.Name,
@@ -1703,6 +1707,8 @@ func (s *OpenAIGatewayService) recordOpenAIStreamUpstreamError(
 	if c != nil {
 		setOpsUpstreamError(c, statusCode, message, detail)
 		event := OpsUpstreamErrorEvent{
+			ProxyID:            opsUpstreamProxyID(account),
+			ProxyName:          opsUpstreamProxyName(account),
 			Platform:           PlatformOpenAI,
 			UpstreamStatusCode: statusCode,
 			UpstreamRequestID:  strings.TrimSpace(upstreamRequestID),
