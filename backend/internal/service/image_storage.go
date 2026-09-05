@@ -263,11 +263,19 @@ func (u *ImageResultUploader) buildKey(taskID string, index int, contentType str
 }
 
 func detectImageContentType(data []byte) (string, error) {
-	ct := strings.TrimSpace(strings.Split(http.DetectContentType(data), ";")[0])
-	if strings.HasPrefix(ct, "image/") {
+	if ct := detectedImageContentType(data); ct != "" {
 		return ct, nil
 	}
+	ct := strings.TrimSpace(strings.Split(http.DetectContentType(data), ";")[0])
 	return "", fmt.Errorf("downloaded content is not an image: detected %s", ct)
+}
+
+func detectedImageContentType(data []byte) string {
+	ct := strings.TrimSpace(strings.Split(http.DetectContentType(data), ";")[0])
+	if strings.HasPrefix(ct, "image/") {
+		return ct
+	}
+	return ""
 }
 
 func extensionForContentType(ct string) string {
