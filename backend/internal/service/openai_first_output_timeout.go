@@ -25,6 +25,8 @@ const (
 	openAIFirstOutputScannerFramingAllowance = 64
 	openAIFirstOutputGuardQueueSize          = 1
 	openAIDefaultStreamQueueSize             = 16
+	openAIFirstOutputCleanupAttempts         = 3
+	openAIFirstOutputCleanupRetryDelay       = 10 * time.Millisecond
 )
 
 var (
@@ -40,8 +42,9 @@ type openAIFirstOutputStage struct {
 	tempPath   string
 	createTemp func() (*os.File, error)
 	removeFile func(string) error
+	sleep      func(time.Duration)
 	memoryOnly bool
-	cleanupErr error
+	fileErr    error
 	closed     bool
 }
 
@@ -53,6 +56,7 @@ func newOpenAIFirstOutputStage(limit int64) *openAIFirstOutputStage {
 		limit:      limit,
 		createTemp: func() (*os.File, error) { return os.CreateTemp("", "sub2api-openai-first-output-*") },
 		removeFile: os.Remove,
+		sleep:      time.Sleep,
 		memoryOnly: runtime.GOOS == "windows",
 	}
 }
@@ -151,21 +155,15 @@ func (s *openAIFirstOutputStage) prepareWrite(incoming int) error {
 	// Unlink before writing any request data. Unix keeps the file descriptor
 	// readable, while crashes and SIGKILL cannot leave a named plaintext spool.
 	if unlinkErr := s.removeFile(path); unlinkErr != nil {
-		closeErr := file.Close()
-		removeErr := s.removeFile(path)
-		if errors.Is(removeErr, os.ErrNotExist) {
-			removeErr = nil
+		if closeErr := file.Close(); closeErr != nil {
+			s.fileErr = fmt.Errorf("close first-output spool after unlink failure: %w", closeErr)
 		}
 		s.memoryOnly = true
-		if removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
-			s.tempPath = path
-		}
-		s.cleanupErr = errors.Join(
-			s.cleanupErr,
-			fmt.Errorf("unlink first-output spool before use: %w", unlinkErr),
-			closeErr,
-			removeErr,
-		)
+		s.tempPath = path
+		// Some container filesystems transiently reject unlink immediately after
+		// creation. The named file is still empty, so retry cleanup after closing
+		// it and keep request buffering in memory.
+		_ = s.removeTempPath()
 		return nil
 	}
 	if _, err := file.Write(s.memory.Bytes()); err != nil {
@@ -194,11 +192,9 @@ func (s *openAIFirstOutputStage) CommitTo(dst io.Writer) error {
 			return err
 		}
 	}
-	if err := s.Close(); err != nil {
-		// Delivery succeeded. Preserve cleanup failures for the handler's deferred
-		// cleanup/logging pass instead of turning committed bytes into a stream error.
-		s.cleanupErr = errors.Join(s.cleanupErr, err)
-	}
+	// Delivery succeeded. Close retains unresolved cleanup state for the
+	// handler's deferred cleanup/logging pass instead of failing the stream.
+	_ = s.Close()
 	return nil
 }
 
@@ -206,27 +202,47 @@ func (s *openAIFirstOutputStage) Close() error {
 	if s == nil {
 		return nil
 	}
-	if s.closed && s.tempFile == nil && s.tempPath == "" && s.cleanupErr == nil {
+	if s.closed && s.tempFile == nil && s.tempPath == "" && s.fileErr == nil {
 		return nil
 	}
 	s.closed = true
 	s.size = 0
 	s.memory.Reset()
-	closeErr := s.cleanupErr
-	s.cleanupErr = nil
 	if s.tempFile != nil {
-		closeErr = errors.Join(closeErr, s.tempFile.Close())
+		if err := s.tempFile.Close(); err != nil {
+			s.fileErr = errors.Join(s.fileErr, fmt.Errorf("close first-output spool: %w", err))
+		}
 		s.tempFile = nil
 	}
-	if s.tempPath != "" {
-		removeErr := s.removeFile(s.tempPath)
+	return errors.Join(s.fileErr, s.removeTempPath())
+}
+
+func (s *openAIFirstOutputStage) removeTempPath() error {
+	if s.tempPath == "" {
+		return nil
+	}
+	path := s.tempPath
+	var removeErr error
+	attempts := 0
+	for attempt := 1; attempt <= openAIFirstOutputCleanupAttempts; attempt++ {
+		attempts = attempt
+		removeErr = s.removeFile(path)
 		if removeErr == nil || errors.Is(removeErr, os.ErrNotExist) {
 			s.tempPath = ""
-		} else {
-			closeErr = errors.Join(closeErr, removeErr)
+			return nil
+		}
+		if !os.IsPermission(removeErr) {
+			break
+		}
+		if attempt < openAIFirstOutputCleanupAttempts {
+			s.sleep(openAIFirstOutputCleanupRetryDelay * time.Duration(attempt))
 		}
 	}
-	return closeErr
+	return fmt.Errorf(
+		"remove first-output spool after %d attempts: %w",
+		attempts,
+		removeErr,
+	)
 }
 
 func (s *OpenAIGatewayService) openAIFirstOutputTimeout(reasoningEffort string) time.Duration {

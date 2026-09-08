@@ -283,13 +283,9 @@ func TestOpenAIFirstOutputStageCommitCopiesSpoolAndRemovesTemp(t *testing.T) {
 	require.NoError(t, stage.Close())
 }
 
-func TestOpenAIFirstOutputStageUnlinkFailurePermanentlyFallsBackToMemoryAndRetriesCleanup(t *testing.T) {
+func TestOpenAIFirstOutputStageUnlinkFailureRetriesCleanupWithoutLeak(t *testing.T) {
 	stage := newDefaultOpenAIFirstOutputStage()
 	stage.memoryOnly = false
-	t.Cleanup(func() {
-		stage.removeFile = os.Remove
-		_ = stage.Close()
-	})
 	createCalls := 0
 	stage.createTemp = func() (*os.File, error) {
 		createCalls++
@@ -299,9 +295,13 @@ func TestOpenAIFirstOutputStageUnlinkFailurePermanentlyFallsBackToMemoryAndRetri
 	stage.removeFile = func(path string) error {
 		removeCalls++
 		if removeCalls <= 2 {
-			return errors.New("forced remove failure")
+			return os.ErrPermission
 		}
 		return os.Remove(path)
+	}
+	var retryDelays []time.Duration
+	stage.sleep = func(delay time.Duration) {
+		retryDelays = append(retryDelays, delay)
 	}
 
 	payload := bytes.Repeat([]byte("m"), 68*1024)
@@ -309,18 +309,49 @@ func TestOpenAIFirstOutputStageUnlinkFailurePermanentlyFallsBackToMemoryAndRetri
 	require.NoError(t, err)
 	require.True(t, stage.memoryOnly)
 	require.Nil(t, stage.tempFile)
-	require.NotEmpty(t, stage.tempPath)
+	require.Empty(t, stage.tempPath)
 	require.Equal(t, 1, createCalls)
-	stat, statErr := os.Stat(stage.tempPath)
-	require.NoError(t, statErr)
-	require.Zero(t, stat.Size(), "failed-unlink fallback must never write plaintext to the named file")
+	require.Equal(t, 3, removeCalls)
+	require.Equal(t, []time.Duration{openAIFirstOutputCleanupRetryDelay}, retryDelays)
 
 	_, err = stage.WriteString("more")
 	require.NoError(t, err)
 	require.Equal(t, 1, createCalls, "memory-only fallback must not retry CreateTemp")
+	require.NoError(t, stage.Close())
+	require.NoError(t, stage.Close())
+}
+
+func TestOpenAIFirstOutputStagePersistentUnlinkFailureReturnsSingleError(t *testing.T) {
+	stage := newDefaultOpenAIFirstOutputStage()
+	stage.memoryOnly = false
+	t.Cleanup(func() {
+		stage.removeFile = os.Remove
+		_ = stage.Close()
+	})
+	stage.removeFile = func(string) error { return os.ErrPermission }
+	stage.sleep = func(time.Duration) {}
+
+	payload := bytes.Repeat([]byte("m"), 68*1024)
+	_, err := stage.Write(payload)
+	require.NoError(t, err)
+	require.True(t, stage.memoryOnly)
+	require.Nil(t, stage.tempFile)
+	require.NotEmpty(t, stage.tempPath)
+	stat, statErr := os.Stat(stage.tempPath)
+	require.NoError(t, statErr)
+	require.Zero(t, stat.Size(), "failed-unlink fallback must never write plaintext to the named file")
+
 	path := stage.tempPath
+	var downstream bytes.Buffer
+	require.NoError(t, stage.CommitTo(&downstream))
+	require.Equal(t, payload, downstream.Bytes())
 	cleanupErr := stage.Close()
-	require.ErrorContains(t, cleanupErr, "forced remove failure")
+	require.ErrorContains(t, cleanupErr, "remove first-output spool after 3 attempts")
+	require.Equal(t, 1, strings.Count(cleanupErr.Error(), os.ErrPermission.Error()))
+	require.Equal(t, path, stage.tempPath)
+
+	stage.removeFile = os.Remove
+	require.NoError(t, stage.Close())
 	require.Empty(t, stage.tempPath)
 	_, err = os.Stat(path)
 	require.ErrorIs(t, err, os.ErrNotExist)
