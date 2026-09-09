@@ -1532,7 +1532,7 @@ func (r *userRepository) loadAllowedAccounts(ctx context.Context, userIDs []int6
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		var userID int64

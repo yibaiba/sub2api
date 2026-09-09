@@ -64,13 +64,6 @@ func proxyExpiresAtValue(field DataNullableInt64) *time.Time {
 	return &t
 }
 
-func dataProxyWarnDaysValue(item DataProxy) int {
-	if item.ExpiryWarnDays == nil {
-		return 0
-	}
-	return *item.ExpiryWarnDays
-}
-
 func buildImportProxyNameIndex(existing []service.Proxy, incoming []DataProxy) map[string]int64 {
 	proxyNameToID := make(map[string]int64, len(existing)+len(incoming))
 	for i := range existing {
