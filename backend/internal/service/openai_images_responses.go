@@ -420,6 +420,9 @@ func buildOpenAIImagesResponsesRequest(parsed *OpenAIImagesRequest, toolModel st
 			tool, _ = sjson.SetBytes(tool, field.path, trimmed)
 		}
 	}
+	if fidelity := strings.TrimSpace(parsed.InputFidelity); fidelity != "" && !openAIImageModelRejectsInputFidelity(toolModel) {
+		tool, _ = sjson.SetBytes(tool, "input_fidelity", fidelity)
+	}
 	if parsed.OutputCompression != nil {
 		tool, _ = sjson.SetBytes(tool, "output_compression", *parsed.OutputCompression)
 	}

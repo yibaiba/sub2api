@@ -2017,6 +2017,26 @@ func TestBuildOpenAIImagesResponsesRequest_StripsInputFidelity(t *testing.T) {
 	require.Equal(t, "edit", gjson.GetBytes(body, "tools.0.action").String())
 }
 
+func TestBuildOpenAIImagesResponsesRequest_PassesInputFidelityForGPTImage25(t *testing.T) {
+	parsed := &OpenAIImagesRequest{
+		Endpoint:      openAIImagesEditsEndpoint,
+		Model:         "gpt-image-2.5-sunburst",
+		Prompt:        "replace background",
+		InputFidelity: "high",
+		InputImageURLs: []string{
+			"https://example.com/source.png",
+		},
+	}
+
+	body, err := buildOpenAIImagesResponsesRequest(parsed, "gpt-image-2.5-sunburst")
+	require.NoError(t, err)
+	require.NotNil(t, body)
+	require.Equal(t, "gpt-5.6-luna", gjson.GetBytes(body, "model").String())
+	require.Equal(t, "gpt-image-2.5-sunburst", gjson.GetBytes(body, "tools.0.model").String())
+	require.Equal(t, "high", gjson.GetBytes(body, "tools.0.input_fidelity").String())
+	require.Equal(t, "edit", gjson.GetBytes(body, "tools.0.action").String())
+}
+
 func TestBuildOpenAIImagesResponsesRequest_RequiresVerbatimUserPrompt(t *testing.T) {
 	prompt := "画一个蓝色马克杯，杯身只写“SkelOT”，保持大小写；白色背景，不要增加其他文字。"
 	parsed := &OpenAIImagesRequest{

@@ -1895,24 +1895,39 @@ func TestNormalizeOpenAIResponsesImageGenerationTools_StripsGPTImage2InputFideli
 	reqBody := map[string]any{"tools": []any{
 		map[string]any{"type": "image_generation", "model": "gpt-image-2-codex", "input_fidelity": "high"},
 		map[string]any{"type": "image_generation", "model": "gpt-image-1.5", "input_fidelity": "high"},
+		map[string]any{"type": "image_generation", "model": "gpt-image-2", "input_fidelity": "high"},
+		map[string]any{"type": "image_generation", "model": "gpt-image-2-2026-04-21", "input_fidelity": "high"},
+		map[string]any{"type": "image_generation", "model": "gpt-image-2.5-flare", "input_fidelity": "high"},
+		map[string]any{"type": "image_generation", "model": "gpt-image-2.5-sunburst", "input_fidelity": "high"},
 	}}
 
 	require.True(t, normalizeOpenAIResponsesImageGenerationTools(reqBody))
 	tools, ok := reqBody["tools"].([]any)
 	require.True(t, ok)
-	require.Len(t, tools, 2)
-	first, ok := tools[0].(map[string]any)
-	require.True(t, ok)
-	second, ok := tools[1].(map[string]any)
-	require.True(t, ok)
-	require.NotContains(t, first, "input_fidelity")
-	require.Equal(t, "high", second["input_fidelity"])
+	require.Len(t, tools, 6)
+	stripped := []int{0, 2, 3}
+	kept := []int{1, 4, 5}
+	for _, i := range stripped {
+		tool, ok := tools[i].(map[string]any)
+		require.True(t, ok)
+		require.NotContains(t, tool, "input_fidelity")
+	}
+	for _, i := range kept {
+		tool, ok := tools[i].(map[string]any)
+		require.True(t, ok)
+		require.Equal(t, "high", tool["input_fidelity"])
+	}
 }
 
 func TestOpenAIRequestBodyImageGenerationToolNeedsNormalization_GPTImage2InputFidelity(t *testing.T) {
-	body := []byte(`{"tools":[{"type":"image_generation","model":"gpt-image-2-codex","input_fidelity":"high"}]}`)
-
-	require.True(t, openAIRequestBodyImageGenerationToolNeedsNormalization(body))
+	require.True(t, openAIRequestBodyImageGenerationToolNeedsNormalization(
+		[]byte(`{"tools":[{"type":"image_generation","model":"gpt-image-2-codex","input_fidelity":"high"}]}`)))
+	require.True(t, openAIRequestBodyImageGenerationToolNeedsNormalization(
+		[]byte(`{"tools":[{"type":"image_generation","model":"gpt-image-2","input_fidelity":"high"}]}`)))
+	require.False(t, openAIRequestBodyImageGenerationToolNeedsNormalization(
+		[]byte(`{"tools":[{"type":"image_generation","model":"gpt-image-2.5-flare","input_fidelity":"high"}]}`)))
+	require.False(t, openAIRequestBodyImageGenerationToolNeedsNormalization(
+		[]byte(`{"tools":[{"type":"image_generation","model":"gpt-image-2.5-sunburst","input_fidelity":"high"}]}`)))
 }
 
 func TestApplyCodexOAuthTransform_ExtractsSystemMessages(t *testing.T) {

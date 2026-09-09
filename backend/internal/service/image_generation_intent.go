@@ -299,7 +299,7 @@ func openAIRequestBodyImageGenerationToolNeedsNormalization(body []byte) bool {
 			return false
 		}
 		imageModel := strings.ToLower(strings.TrimSpace(item.Get("model").String()))
-		if strings.HasPrefix(imageModel, "gpt-image-2") && item.Get("input_fidelity").Exists() {
+		if openAIImageModelRejectsInputFidelity(imageModel) && item.Get("input_fidelity").Exists() {
 			needsNormalization = true
 			return false
 		}
