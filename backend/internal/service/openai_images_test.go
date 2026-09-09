@@ -1958,9 +1958,14 @@ func TestBuildOpenAIImagesResponsesRequest_PassesThroughNForMultiImageModels(t *
 	body, err := buildOpenAIImagesResponsesRequest(parsed, "gpt-image-2")
 	require.NoError(t, err)
 	require.NotNil(t, body)
+	require.Equal(t, "gpt-5.6-luna", gjson.GetBytes(body, "model").String())
 	require.Equal(t, int64(2), gjson.GetBytes(body, "tools.0.n").Int())
 	require.Equal(t, "gpt-image-2", gjson.GetBytes(body, "tools.0.model").String())
 	require.Equal(t, "draw a cat", gjson.GetBytes(body, "input.0.content.0.text").String())
+}
+
+func TestOpenAIImagesResponsesMainModel_UsesChatGPTCodexSupportedDriver(t *testing.T) {
+	require.Equal(t, "gpt-5.6-luna", openAIImagesResponsesMainModel)
 }
 
 func TestBuildOpenAIImagesResponsesRequest_ForcesImageToolChoice(t *testing.T) {
@@ -1973,6 +1978,7 @@ func TestBuildOpenAIImagesResponsesRequest_ForcesImageToolChoice(t *testing.T) {
 	body, err := buildOpenAIImagesResponsesRequest(parsed, "gpt-image-2")
 	require.NoError(t, err)
 	require.NotNil(t, body)
+	require.Equal(t, "gpt-5.6-luna", gjson.GetBytes(body, "model").String())
 	require.Equal(t, "image_generation", gjson.GetBytes(body, "tool_choice.type").String())
 	require.Equal(t, "image_generation", gjson.GetBytes(body, "tools.0.type").String())
 	require.Equal(t, "gpt-image-2", gjson.GetBytes(body, "tools.0.model").String())

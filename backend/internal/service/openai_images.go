@@ -34,12 +34,14 @@ const (
 	openAIImagesGenerationsURL = "https://api.openai.com/v1/images/generations"
 	openAIImagesEditsURL       = "https://api.openai.com/v1/images/edits"
 
-	openAIChatGPTStartURL                  = "https://chatgpt.com/"
-	openAIChatGPTFilesURL                  = "https://chatgpt.com/backend-api/files"
-	openAIImageBackendUserAgent            = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-	openAIImageMaxDownloadBytes            = 20 << 20 // 20MB per image download
-	openAIImageMaxUploadPartSize           = 20 << 20 // 20MB per multipart upload part
-	openAIImagesResponsesMainModel         = "gpt-5.4-mini"
+	openAIChatGPTStartURL        = "https://chatgpt.com/"
+	openAIChatGPTFilesURL        = "https://chatgpt.com/backend-api/files"
+	openAIImageBackendUserAgent  = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+	openAIImageMaxDownloadBytes  = 20 << 20 // 20MB per image download
+	openAIImageMaxUploadPartSize = 20 << 20 // 20MB per multipart upload part
+	// ChatGPT-plan Codex retired gpt-5.4-mini on 2026-08-31. OAuth image_generation
+	// still needs a Responses text driver; the designated mini replacement is gpt-5.6-luna.
+	openAIImagesResponsesMainModel         = "gpt-5.6-luna"
 	openAIImagesVerbatimPromptInstructions = "When invoking the image_generation tool, use the user's image prompt verbatim. Do not rewrite, expand, summarize, embellish, translate, normalize punctuation, or add or remove visual details or constraints. Preserve the original language, wording, capitalization, quotes, and punctuation exactly."
 )
 
