@@ -382,7 +382,7 @@ func buildOpenAIImagesResponsesRequest(parsed *OpenAIImagesRequest, toolModel st
 	}
 
 	req := []byte(`{"instructions":"","stream":true,"reasoning":{"effort":"medium","summary":"auto"},"parallel_tool_calls":true,"include":["reasoning.encrypted_content"],"model":"","store":false,"tool_choice":{"type":"image_generation"}}`)
-	req, _ = sjson.SetBytes(req, "model", openAIImagesResponsesMainModel)
+	req, _ = sjson.SetBytes(req, "model", openAIImagesResponsesMainModelValue())
 	req, _ = sjson.SetBytes(req, "instructions", openAIImagesVerbatimPromptInstructions)
 
 	input := []byte(`[{"type":"message","role":"user","content":[{"type":"input_text","text":""}]}]`)
@@ -977,6 +977,17 @@ func (s *OpenAIGatewayService) handleOpenAIImagesErrorResponse(
 			Message:           "Upstream gateway error",
 			UpstreamRequestID: strings.TrimSpace(resp.Header.Get("x-request-id")),
 		}
+		writeOpenAIImagesUpstreamErrorResponse(c, upErr)
+		return nil, upErr
+	}
+
+	// A retired/configured Responses driver is not an image-model quota failure.
+	// Surface the actionable upstream error instead of cooling every image account
+	// and eventually hiding the configuration problem behind a generic 503.
+	if account.IsOpenAIOAuthLike() &&
+		isOpenAICodexPlanGatedModelError(resp.StatusCode, body) &&
+		strings.Contains(extractUpstreamErrorMessage(body), "'"+openAIImagesResponsesMainModelValue()+"'") {
+		upErr := openAIImagesUpstreamErrorFromHTTP(resp.StatusCode, resp.Header, body)
 		writeOpenAIImagesUpstreamErrorResponse(c, upErr)
 		return nil, upErr
 	}

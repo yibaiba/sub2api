@@ -1519,12 +1519,11 @@ func (s *PricingService) matchOpenAIModel(model string) *LiteLLMModelPricing {
 
 	// Remote price mirrors can lag new releases. Never bill GPT Image 2.5
 	// using the older image model's rates when its entry is absent.
-	if strings.HasPrefix(model, "gpt-image-2.5-") {
-		logger.With(zap.String("component", "service.pricing")).
-			Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, "gpt-image-2.5(static)"))
-		return openAIGPTImage25FallbackPricing
+	for _, imageModel := range []string{"gpt-image-2.5-flare", "gpt-image-2.5-sunburst"} {
+		if model == imageModel || model == imageModel+"-2026-09-08" {
+			return openAIGPTImage25FallbackPricing
+		}
 	}
-
 	if isOpenAIImageGenerationModel(model) {
 		for _, candidate := range []string{"gpt-image-2", "gpt-image-1.5", "gpt-image-1"} {
 			if pricing, ok := s.pricingData[candidate]; ok {
