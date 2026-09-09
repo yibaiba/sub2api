@@ -213,11 +213,12 @@ func TestAdminServiceSimpleModeRejectsCompositeCreateAndConversionDirectly(t *te
 
 func TestAdminServiceSimpleModeNormalizesAllUnsupportedCreateFieldsDirectly(t *testing.T) {
 	one := 1.0
+	enabled := true
 	fallbackID := int64(44)
 	input := &CreateGroupInput{
 		Name: "simple", Description: "allowed", Platform: PlatformAnthropic,
 		RateMultiplier: 9, IsExclusive: true, SubscriptionType: SubscriptionTypeSubscription,
-		DailyLimitUSD: &one, LongContextPricingEnabled: true,
+		DailyLimitUSD: &one, LongContextPricingEnabled: &enabled,
 		ModelPricing:    []ChannelModelPricing{{Models: []string{"claude"}}},
 		PeakRateEnabled: true, PeakStart: "00:00", PeakEnd: "01:00", PeakRateMultiplier: &one,
 		ImageRateIndependent: true, ImageRateMultiplier: &one, VideoRateIndependent: true, VideoRateMultiplier: &one,

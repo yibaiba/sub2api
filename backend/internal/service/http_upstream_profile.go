@@ -11,6 +11,7 @@ const (
 	HTTPUpstreamProfileOpenAI          HTTPUpstreamProfile = "openai"
 	HTTPUpstreamProfileOllamaAnthropic HTTPUpstreamProfile = "ollama_anthropic"
 	HTTPUpstreamProfileGrok            HTTPUpstreamProfile = "grok"
+	HTTPUpstreamProfileLongStream      HTTPUpstreamProfile = "long_stream"
 )
 
 type httpUpstreamProfileContextKey struct{}
@@ -38,7 +39,7 @@ func HTTPUpstreamProfileFromContext(ctx context.Context) HTTPUpstreamProfile {
 		return HTTPUpstreamProfileDefault
 	}
 	switch profile {
-	case HTTPUpstreamProfileOpenAI, HTTPUpstreamProfileOllamaAnthropic, HTTPUpstreamProfileGrok:
+	case HTTPUpstreamProfileOpenAI, HTTPUpstreamProfileOllamaAnthropic, HTTPUpstreamProfileGrok, HTTPUpstreamProfileLongStream:
 		return profile
 	default:
 		return HTTPUpstreamProfileDefault

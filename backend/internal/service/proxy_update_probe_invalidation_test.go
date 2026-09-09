@@ -57,7 +57,6 @@ func TestBothProxyUpdateServicesUseRepositoryUpdateBoundary(t *testing.T) {
 			},
 		}
 		svc := &adminServiceImpl{proxyRepo: repo}
-
 		_, err := svc.UpdateProxy(context.Background(), 9, &UpdateProxyInput{
 			Host:           "new.example",
 			FallbackMode:   OptionalStringInput{Set: true, Value: FallbackModeNone},

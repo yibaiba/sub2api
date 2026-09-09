@@ -557,6 +557,8 @@ type OptionalIntInput struct {
 	Value int
 }
 
+// UpdateProxyInput uses optional values to distinguish omitted fields from
+// explicit zero values or clears during partial updates.
 type UpdateProxyInput struct {
 	Name           string
 	Protocol       string
