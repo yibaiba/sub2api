@@ -46,8 +46,8 @@ type UpdateProxyRequest struct {
 	Protocol       string                 `json:"protocol" binding:"omitempty,oneof=http https socks5 socks5h resin_http resin_https resin_socks5"`
 	Host           string                 `json:"host"`
 	Port           int                    `json:"port" binding:"omitempty,min=1,max=65535"`
-	Username       string                 `json:"username"`
-	Password       string                 `json:"password"`
+	Username       *string                `json:"username"`
+	Password       *string                `json:"password"`
 	BasePath       *string                `json:"base_path"`
 	Status         string                 `json:"status" binding:"omitempty,oneof=active inactive"`
 	ExpiresAt      dto.NullableInt64Field `json:"expires_at"`
@@ -194,6 +194,12 @@ func (h *ProxyHandler) Update(c *gin.Context) {
 		t := time.Unix(*req.ExpiresAt.Value, 0).UTC()
 		expiresAt = &t
 	}
+	if req.Username != nil {
+		*req.Username = strings.TrimSpace(*req.Username)
+	}
+	if req.Password != nil {
+		*req.Password = strings.TrimSpace(*req.Password)
+	}
 	fallbackMode := service.OptionalStringInput{}
 	if req.FallbackMode != nil {
 		fallbackMode = service.OptionalStringInput{
@@ -210,8 +216,8 @@ func (h *ProxyHandler) Update(c *gin.Context) {
 		Protocol:       strings.TrimSpace(req.Protocol),
 		Host:           strings.TrimSpace(req.Host),
 		Port:           req.Port,
-		Username:       strings.TrimSpace(req.Username),
-		Password:       strings.TrimSpace(req.Password),
+		Username:       req.Username,
+		Password:       req.Password,
 		BasePath:       trimStringPtr(req.BasePath),
 		Status:         strings.TrimSpace(req.Status),
 		ExpiresAt:      service.OptionalTimeInput{Set: req.ExpiresAt.Set, Value: expiresAt},
