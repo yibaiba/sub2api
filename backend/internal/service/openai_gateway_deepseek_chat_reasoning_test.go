@@ -152,7 +152,7 @@ func TestForwardResponses_DeepSeekChatFallbackInjectsReasoningPlaceholderOnCache
 func TestForwardResponses_DeepSeekChatFallbackKeepsCachedReasoningContent(t *testing.T) {
 	body := deepSeekChatHistoryWithEncryptedReasoning()
 	c := newDeepSeekChatFallbackContext(t, body)
-	setReasoningTestAPIKey(c, 101)
+	c.Set("api_key", &APIKey{ID: 101})
 	upstream := newOKChatCompletionsUpstream("rid_ds_rc_cached", deepSeekChatFallbackOKBody)
 	svc := &OpenAIGatewayService{
 		cfg:          deepSeekChatFallbackTestConfig(),
