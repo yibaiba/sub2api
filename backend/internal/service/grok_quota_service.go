@@ -507,7 +507,6 @@ func (s *GrokQuotaService) prepareProbe(ctx context.Context, accountID int64) (*
 	if err != nil {
 		return nil, "", "", err
 	}
-
 	proxyURL, err := s.resolveProxyURL(ctx, account)
 	if err != nil {
 		return nil, "", "", err
