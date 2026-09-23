@@ -5064,7 +5064,6 @@
                     class="input pr-8"
                     data-testid="openai-oauth-scheduling-rate-multiplier"
                     min="0"
-                    required
                     step="0.01"
                     type="number"
                   />
@@ -5153,7 +5152,6 @@
                     class="input pr-8"
                     data-testid="openai-oauth-scheduling-rate-multiplier"
                     min="0"
-                    required
                     step="0.01"
                     type="number"
                   />
@@ -9553,6 +9551,7 @@ type SettingsForm = Omit<
   | "wechat_connect_open_enabled"
   | "wechat_connect_mp_enabled"
   | "wechat_connect_mobile_enabled"
+  | "openai_oauth_scheduling_rate_multiplier"
 > & {
   /** Form always binds a concrete boolean (SystemSettings marks this optional). */
   channel_monitor_hide_throughput: boolean;
@@ -9579,7 +9578,7 @@ type SettingsForm = Omit<
   google_oauth_client_secret: string;
   force_email_on_third_party_signup: boolean;
   openai_low_upstream_rate_priority_enabled: boolean;
-  openai_oauth_scheduling_rate_multiplier: number;
+  openai_oauth_scheduling_rate_multiplier: number | "" | null;
   openai_advanced_scheduler_enabled: boolean;
   openai_advanced_scheduler_sticky_weighted_enabled: boolean;
   openai_advanced_scheduler_subscription_priority_enabled: boolean;
@@ -10871,6 +10870,10 @@ async function loadSettings() {
         (form as Record<string, unknown>)[key] = value;
       }
     }
+    // For this optional override, null explicitly selects per-account rates.
+    if (settings.openai_oauth_scheduling_rate_multiplier === null) {
+      form.openai_oauth_scheduling_rate_multiplier = null;
+    }
     syncCaptchaProviderSelection();
     if (!form.claude_oauth_system_prompt_blocks?.trim()) {
       form.claude_oauth_system_prompt_blocks =
@@ -11271,6 +11274,16 @@ async function saveSettings() {
     form.claude_oauth_system_prompt_blocks =
       claudeOAuthSystemPromptBlocksJSON;
 
+    const oauthSchedulingRate = form.openai_oauth_scheduling_rate_multiplier;
+    if (
+      oauthSchedulingRate !== "" &&
+      oauthSchedulingRate !== null &&
+      (!Number.isFinite(oauthSchedulingRate) || oauthSchedulingRate < 0)
+    ) {
+      appStore.showError(t("admin.settings.openaiExperimentalScheduler.oauthRateInvalid"));
+      return;
+    }
+
     const payload: UpdateSettingsRequest = {
       registration_enabled: form.registration_enabled,
       email_verify_enabled: form.email_verify_enabled,
@@ -11537,7 +11550,7 @@ async function saveSettings() {
       openai_low_upstream_rate_priority_enabled:
         form.openai_low_upstream_rate_priority_enabled,
       openai_oauth_scheduling_rate_multiplier:
-        form.openai_oauth_scheduling_rate_multiplier,
+        oauthSchedulingRate === "" ? null : oauthSchedulingRate,
       openai_advanced_scheduler_enabled: form.openai_advanced_scheduler_enabled,
       openai_advanced_scheduler_sticky_weighted_enabled:
         form.openai_advanced_scheduler_sticky_weighted_enabled,
@@ -11645,6 +11658,9 @@ async function saveSettings() {
       if (value !== null && value !== undefined) {
         (form as Record<string, unknown>)[key] = value;
       }
+    }
+    if (updated.openai_oauth_scheduling_rate_multiplier === null) {
+      form.openai_oauth_scheduling_rate_multiplier = null;
     }
     Object.assign(authSourceDefaults, buildAuthSourceDefaultsState(updated));
     form.default_platform_quotas = normalizePlatformQuotasMap(updated.default_platform_quotas);
