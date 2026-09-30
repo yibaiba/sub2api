@@ -1013,7 +1013,7 @@ describe('UseKeyModal', () => {
         const configToml = wrapper.findAll('pre code')
           .map((code) => code.text())
           .find((content) => content.includes('model_provider = "OpenAI"'))
-        expect(configToml).toContain('model = "gpt-5.5"')
+        expect(configToml).toContain('model = "gpt-5.6-sol"')
         expect(configToml).not.toContain('model_catalog_json')
         expect(wrapper.find('[data-testid="codex-model-catalog"]').exists()).toBe(false)
       }

@@ -122,6 +122,49 @@ describe('ModelWhitelistSelector', () => {
     expect(wrapper.emitted('update:modelValue')).toEqual([[['custom-model']]])
   })
 
+  it('rejects a mapped model selected from the dropdown', async () => {
+    const wrapper = mountSelector({
+      modelMappings: [{ from: 'gpt-5.6-sol', to: 'gpt-5.5' }]
+    })
+    await wrapper.get('div.cursor-pointer').trigger('click')
+    await findModelRow(wrapper, 'gpt-5.6-sol').get('[data-testid="select-model"]').trigger('click')
+
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    expect(showInfo).toHaveBeenCalledWith(expect.stringContaining('gpt-5.6-sol → gpt-5.5'))
+  })
+
+  it('skips mapped models when filling related models', async () => {
+    const wrapper = mountSelector({
+      modelMappings: [{ from: 'gpt-5.6-sol', to: 'gpt-5.5' }]
+    })
+    await wrapper.findAll('button').find(
+      button => button.text() === 'admin.accounts.fillRelatedModels'
+    )!.trigger('click')
+
+    const emittedModels = wrapper.emitted('update:modelValue')![0][0] as string[]
+    expect(emittedModels).not.toContain('gpt-5.6-sol')
+    expect(emittedModels).toContain('gpt-5.6')
+    expect(showInfo).toHaveBeenCalledWith(expect.stringContaining('gpt-5.6-sol → gpt-5.5'))
+  })
+
+  it('skips mapped models when syncing upstream models', async () => {
+    syncUpstreamModels.mockResolvedValue({
+      models: ['gpt-5.6-sol', 'gpt-5.6'],
+      warnings: []
+    })
+    const wrapper = mountSelector({
+      accountId: 46,
+      modelMappings: [{ from: 'gpt-5.6-sol', to: 'gpt-5.5' }]
+    })
+    await wrapper.findAll('button').find(
+      button => button.text() === 'admin.accounts.syncUpstreamModels'
+    )!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.emitted('update:modelValue')).toEqual([[['gpt-5.6']]])
+    expect(showInfo).toHaveBeenCalledWith(expect.stringContaining('gpt-5.6-sol → gpt-5.5'))
+  })
+
   it('copies a model ID without selecting the model', async () => {
     const wrapper = mountSelector()
     await wrapper.get('div.cursor-pointer').trigger('click')

@@ -256,10 +256,57 @@ const removeModel = (model: string) => {
   emit('update:modelValue', props.modelValue.filter(m => m !== model))
 }
 
+interface ModelMappingConflict {
+  model: string
+  target: string
+}
+
+const findModelMappingConflict = (model: string): ModelMappingConflict | null => {
+  const mapping = props.modelMappings?.find(
+    item => item.from.trim() === model && item.to.trim() && item.to.trim() !== model
+  )
+  return mapping ? { model, target: mapping.to.trim() } : null
+}
+
+const showModelMappingConflict = (conflict: ModelMappingConflict | null) => {
+  if (!conflict) return
+  appStore.showInfo(
+    t('admin.accounts.modelMappingConflict', {
+      from: conflict.model,
+      to: conflict.target
+    })
+  )
+}
+
+const mergeWhitelistModels = (candidates: string[]) => {
+  const models = [...props.modelValue]
+  let addedCount = 0
+  let firstConflict: ModelMappingConflict | null = null
+
+  for (const candidate of candidates) {
+    const model = candidate.trim()
+    if (!model || models.includes(model)) continue
+    const conflict = findModelMappingConflict(model)
+    if (conflict) {
+      firstConflict ??= conflict
+      continue
+    }
+    models.push(model)
+    addedCount += 1
+  }
+
+  return { models, addedCount, firstConflict }
+}
+
 const toggleModel = (model: string) => {
   if (props.modelValue.includes(model)) {
     removeModel(model)
   } else {
+    const conflict = findModelMappingConflict(model)
+    if (conflict) {
+      showModelMappingConflict(conflict)
+      return
+    }
     emit('update:modelValue', [...props.modelValue, model])
   }
 }
@@ -275,9 +322,9 @@ const addCustom = () => {
     appStore.showInfo(t('admin.accounts.modelExists'))
     return
   }
-  const conflict = props.modelMappings?.find(mapping => mapping.from.trim() === model && mapping.to.trim() && mapping.to.trim() !== model)
+  const conflict = findModelMappingConflict(model)
   if (conflict) {
-    appStore.showInfo(t('admin.accounts.modelMappingConflict', { from: model, to: conflict.to.trim() }))
+    showModelMappingConflict(conflict)
     return
   }
   emit('update:modelValue', [...props.modelValue, model])
@@ -289,15 +336,13 @@ const handleEnter = () => {
 }
 
 const fillRelated = () => {
-  const newModels = [...props.modelValue]
+  const candidates: string[] = []
   for (const platform of normalizedPlatforms.value) {
-    for (const model of getModelsByPlatform(platform)) {
-      if (!newModels.includes(model)) {
-        newModels.push(model)
-      }
-    }
+    candidates.push(...getModelsByPlatform(platform))
   }
-  emit('update:modelValue', newModels)
+  const { models, firstConflict } = mergeWhitelistModels(candidates)
+  emit('update:modelValue', models)
+  showModelMappingConflict(firstConflict)
 }
 
 const syncUpstreamModels = async () => {
@@ -325,16 +370,9 @@ const syncUpstreamModels = async () => {
       emit('upstream-synced')
     }
 
-    const newModels = [...props.modelValue]
-    let addedCount = 0
-    for (const model of upstreamModels) {
-      if (!newModels.includes(model)) {
-        newModels.push(model)
-        addedCount += 1
-      }
-    }
-
-    emit('update:modelValue', newModels)
+    const { models, addedCount, firstConflict } = mergeWhitelistModels(upstreamModels)
+    emit('update:modelValue', models)
+    showModelMappingConflict(firstConflict)
     const warnings = result.warnings ?? []
     const hasPartialMetadata = warnings.some(
       warning => warning.code === 'upstream_model_metadata_partial'
