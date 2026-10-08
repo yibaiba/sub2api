@@ -438,6 +438,11 @@ func (s *APIKeyService) checkAPIKeyRateLimit(ctx context.Context, userID int64) 
 	return nil
 }
 
+// APIKeyLimitedCreator atomically checks the user's key count and creates a key.
+type APIKeyLimitedCreator interface {
+	CreateWithLimit(ctx context.Context, key *APIKey, maxActive int) error
+}
+
 // checkAPIKeyCreateLimits 校验创建 API Key 的防滥用限制（对自定义与自动生成的 Key 一视同仁）。
 // 数量上限按未删除的 Key 计；创建次数按固定窗口累计，删除 Key 不返还次数，
 // 以阻断"删除后反复新建"的循环。Redis 出错时与自定义 Key 限流一致，不阻止用户操作。
@@ -587,7 +592,7 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 		apiKey.ExpiresAt = &expiresAt
 	}
 
-	if err := s.apiKeyRepo.Create(ctx, apiKey); err != nil {
+	if err := s.createAPIKey(ctx, apiKey); err != nil {
 		return nil, fmt.Errorf("create api key: %w", err)
 	}
 
@@ -595,6 +600,17 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 	s.compileAPIKeyIPRules(apiKey)
 
 	return apiKey, nil
+}
+
+func (s *APIKeyService) createAPIKey(ctx context.Context, key *APIKey) error {
+	if s.cfg == nil || s.cfg.APIKeyCreate.MaxActivePerUser <= 0 {
+		return s.apiKeyRepo.Create(ctx, key)
+	}
+	repo, ok := s.apiKeyRepo.(APIKeyLimitedCreator)
+	if !ok {
+		return fmt.Errorf("API key repository does not support atomic count limits")
+	}
+	return repo.CreateWithLimit(ctx, key, s.cfg.APIKeyCreate.MaxActivePerUser)
 }
 
 // List 获取用户的API Key列表

@@ -1627,8 +1627,7 @@ func (s *AuthService) ResetPassword(ctx context.Context, email, token, newPasswo
 		return ErrServiceUnavailable
 	}
 
-	// Verify and consume the reset token (one-time use)
-	if err := s.emailService.ConsumePasswordResetToken(ctx, email, token); err != nil {
+	if err := s.emailService.VerifyPasswordResetToken(ctx, email, token); err != nil {
 		return err
 	}
 
@@ -1653,15 +1652,24 @@ func (s *AuthService) ResetPassword(ctx context.Context, email, token, newPasswo
 		return fmt.Errorf("hash password: %w", err)
 	}
 
-	// Update password and increment TokenVersion
-	user.PasswordHash = hashedPassword
-	user.TokenVersion++ // Invalidate all existing tokens
-
-	// TokenVersion 无对应数据库列（见 resolvedTokenVersion：由 email+password_hash 指纹推导），
-	// 写回 password_hash 本身即可让旧 token 失效。
-	if err := s.userRepo.Update(ctx, user, UserUpdateFields{PasswordHash: true}); err != nil {
+	repo, ok := s.userRepo.(PasswordResetRepository)
+	if !ok {
+		return fmt.Errorf("user repository does not support atomic password resets")
+	}
+	// The DB transaction is authoritative for single use. Redis stays intact on
+	// write failure, allowing retry without permitting concurrent double writes.
+	if err := repo.ResetPasswordOnce(ctx, PasswordResetUpdate{
+		UserID: user.ID, PasswordHash: hashedPassword, TokenHash: hashPasswordResetToken(token),
+		ExpiresAt: time.Now().Add(passwordResetTokenTTL),
+	}); err != nil {
+		if errors.Is(err, ErrInvalidResetToken) {
+			return err
+		}
 		logger.LegacyPrintf("service.auth", "[Auth] Database error updating password for user %d: %v", user.ID, err)
 		return ErrServiceUnavailable
+	}
+	if _, err := s.emailService.cache.ConsumePasswordResetToken(ctx, email, hashPasswordResetToken(token)); err != nil {
+		logger.S().Warnw("failed to clean up committed password reset token", "user_id", user.ID, "error", err)
 	}
 
 	// Also revoke all refresh tokens for this user

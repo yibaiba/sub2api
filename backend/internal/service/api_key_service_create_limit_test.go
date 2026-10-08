@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -30,6 +31,66 @@ func (s *createLimitAPIKeyRepoStub) ExistsByKey(ctx context.Context, key string)
 func (s *createLimitAPIKeyRepoStub) Create(ctx context.Context, key *APIKey) error {
 	s.created = append(s.created, key)
 	return nil
+}
+
+func (s *createLimitAPIKeyRepoStub) CreateWithLimit(ctx context.Context, key *APIKey, maxActive int) error {
+	if s.activeCount >= int64(maxActive) {
+		return ErrAPIKeyCountExceeded
+	}
+	return s.Create(ctx, key)
+}
+
+type concurrentLimitedAPIKeyRepo struct {
+	APIKeyRepository
+	mu      sync.Mutex
+	created int
+	checked chan struct{}
+	start   chan struct{}
+}
+
+func (s *concurrentLimitedAPIKeyRepo) CountByUserID(context.Context, int64) (int64, error) {
+	s.checked <- struct{}{}
+	<-s.start
+	return 0, nil // Both requests pass the advisory service pre-check.
+}
+
+func (s *concurrentLimitedAPIKeyRepo) Create(context.Context, *APIKey) error {
+	return errors.New("unlimited create must not be called")
+}
+
+func (s *concurrentLimitedAPIKeyRepo) CreateWithLimit(_ context.Context, _ *APIKey, maxActive int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.created >= maxActive {
+		return ErrAPIKeyCountExceeded
+	}
+	s.created++
+	return nil
+}
+
+func TestAPIKeyServiceCreate_ConcurrentRequestsUseAtomicLimit(t *testing.T) {
+	repo, cache := newCreateLimitStubs()
+	atomicRepo := &concurrentLimitedAPIKeyRepo{APIKeyRepository: repo, checked: make(chan struct{}, 2), start: make(chan struct{})}
+	svc := newCreateLimitService(repo, cache, 1, 0)
+	svc.apiKeyRepo = atomicRepo
+	results := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			_, err := svc.Create(context.Background(), 7, CreateAPIKeyRequest{Name: "k"})
+			results <- err
+		}()
+	}
+	<-atomicRepo.checked
+	<-atomicRepo.checked
+	close(atomicRepo.start)
+	first, second := <-results, <-results
+	if first == nil {
+		require.ErrorIs(t, second, ErrAPIKeyCountExceeded)
+	} else {
+		require.ErrorIs(t, first, ErrAPIKeyCountExceeded)
+		require.NoError(t, second)
+	}
+	require.Equal(t, 1, atomicRepo.created)
 }
 
 type createLimitCacheStub struct {
