@@ -58,7 +58,7 @@ func applyStaticAssetCacheHeaders(header http.Header, cleanPath string) {
 	switch {
 	case isFingerprintedEmbeddedAssetPath(cleanPath):
 		header.Set("Cache-Control", staticAssetsCacheControl)
-	case cleanPath == "logo.png" || cleanPath == "favicon.ico":
+	case cleanPath == "logo.png" || cleanPath == "logo.svg" || cleanPath == "favicon.ico":
 		header.Set("Cache-Control", fixedAssetCacheControl)
 	}
 }

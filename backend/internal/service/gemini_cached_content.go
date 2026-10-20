@@ -1002,13 +1002,15 @@ func (s *GeminiCachedContentService) PatchUpstream(ctx context.Context, account 
 	if err != nil {
 		return nil, err
 	}
-	out := &GeminiCachedContentUpstream{Name: record.UpstreamName}
-	if raw := gjson.GetBytes(respBody, "expireTime").String(); raw != "" {
-		if t, err := time.Parse(time.RFC3339Nano, raw); err == nil {
-			out.ExpireTime = t
+	var response struct {
+		ExpireTime time.Time `json:"expireTime"`
+	}
+	if err := json.Unmarshal(respBody, &response); err != nil || response.ExpireTime.IsZero() {
+		return nil, &GeminiCachedContentMalformedResponseError{
+			Name: record.UpstreamName, Err: errors.New("missing or invalid expireTime in JSON response"),
 		}
 	}
-	return out, nil
+	return &GeminiCachedContentUpstream{Name: record.UpstreamName, ExpireTime: response.ExpireTime}, nil
 }
 
 // DeleteUpstream 删除上游缓存。
@@ -1085,7 +1087,7 @@ func (s *GeminiCachedContentService) doUpstream(ctx context.Context, account *Ac
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, geminiCachedContentResponseMaxBytes))
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, geminiCachedContentResponseMaxBytes+1))
 	success := resp.StatusCode >= 200 && resp.StatusCode < 300
 	if err != nil {
 		if success {
@@ -1094,7 +1096,13 @@ func (s *GeminiCachedContentService) doUpstream(ctx context.Context, account *Ac
 		return nil, err
 	}
 	if !success {
+		if len(respBody) > geminiCachedContentResponseMaxBytes {
+			respBody = respBody[:geminiCachedContentResponseMaxBytes]
+		}
 		return nil, &GeminiCachedContentUpstreamError{StatusCode: resp.StatusCode, Body: respBody, UpstreamGateway: account.GeminiExplicitCacheUpstreamEnabled()}
+	}
+	if len(respBody) > geminiCachedContentResponseMaxBytes {
+		return nil, &GeminiCachedContentMalformedResponseError{Err: errors.New("cached content response exceeds size limit")}
 	}
 	return respBody, nil
 }
