@@ -7,7 +7,9 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -272,6 +274,19 @@ func TestImageResultUploaderRejectsUnsafeURLBeforeRoundTrip(t *testing.T) {
 	for _, rawURL := range []string{
 		"http://images.example.test/pic.png",
 		"https://127.0.0.1/pic.png",
+		"https://LOCALHOST./a.png",
+		"https://foo.localhost/a.png",
+		"https://10.0.0.8/a.png",
+		"https://172.16.3.4/a.png",
+		"https://192.168.1.1/a.png",
+		"https://100.64.0.1/a.png",
+		"https://metadata.google.internal/computeMetadata/v1/",
+		"https://metadata.goog/a.png",
+		"https://0.0.0.0/a.png",
+		"https://[::1]/a.png",
+		"https://[::ffff:127.0.0.1]/a.png",
+		"https://[fd00::1]/a.png",
+		"https://[fe80::1%25eth0]/a.png",
 		"https://169.254.169.254/latest/meta-data",
 	} {
 		t.Run(rawURL, func(t *testing.T) {
@@ -309,4 +324,64 @@ func TestImageResultUploaderRejectsNonImageContent(t *testing.T) {
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "not an image")
+}
+
+func TestImageTaskServiceCompletePrivateURLMarksFailed(t *testing.T) {
+	var hits atomic.Int32
+	internal := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		_, _ = w.Write(pngBytes)
+	}))
+	defer internal.Close()
+	storage := &fakeImageStorage{}
+	uploader := newTestImageUploader(t, storage, internal.Client())
+	svc := NewImageTaskServiceWithUploader(&imageTaskMemoryStore{}, uploader, time.Hour, time.Minute)
+	owner := ImageTaskOwner{UserID: 1, APIKeyID: 2}
+	created, err := svc.Create(context.Background(), owner)
+	require.NoError(t, err)
+
+	result := json.RawMessage(`{"data":[{"url":"` + internal.URL + `/a.gif"}]}`)
+	require.NoError(t, svc.Complete(context.Background(), created.ID, http.StatusOK, result))
+	got, err := svc.Get(context.Background(), owner, created.ID)
+	require.NoError(t, err)
+	require.Equal(t, ImageTaskStatusFailed, got.Status)
+	require.Empty(t, got.ImageURL)
+	require.NotContains(t, string(got.Result), internal.URL)
+	require.Zero(t, hits.Load())
+	require.Empty(t, storage.saved)
+}
+
+func TestImageResultUploaderDownloadContentTypes(t *testing.T) {
+	for _, tc := range []struct {
+		name, contentType string
+		body              []byte
+		wantError         bool
+	}{
+		{name: "declared png", contentType: "image/png", body: pngBytes},
+		{name: "sniffed png", contentType: "application/octet-stream", body: pngBytes},
+		{name: "missing header", body: pngBytes},
+		{name: "mislabeled png", contentType: "image/jpeg", body: pngBytes},
+		{name: "json", contentType: "application/json", body: []byte(`{"ok":true}`), wantError: true},
+		{name: "html", contentType: "text/html", body: []byte("<html>admin</html>"), wantError: true},
+		{name: "fake image header", contentType: "image/png", body: []byte("not an image"), wantError: true},
+		{name: "empty", wantError: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := &http.Client{Transport: imageRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{tc.contentType}},
+					Body: io.NopCloser(strings.NewReader(string(tc.body))), Request: req}, nil
+			})}
+			storage := &fakeImageStorage{}
+			uploader := newTestImageUploader(t, storage, client)
+			_, err := uploader.Rewrite(context.Background(), "imgtask_ct", json.RawMessage(`{"data":[{"url":"https://images.example.test/a"}]}`))
+			if tc.wantError {
+				require.ErrorContains(t, err, "not an image")
+				require.Empty(t, storage.saved)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, storage.saved, 1)
+			require.Equal(t, "image/png", storage.saved[0].contentType)
+		})
+	}
 }

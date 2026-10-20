@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -82,7 +84,38 @@ func imageDownloadClientWithRedirectValidation(base *http.Client) *http.Client {
 }
 
 func validateImageDownloadURL(rawURL string) (string, error) {
-	return urlvalidator.ValidateHTTPSURL(rawURL, urlvalidator.ValidationOptions{AllowPrivate: false})
+	validated, err := urlvalidator.ValidateHTTPSURL(rawURL, urlvalidator.ValidationOptions{AllowPrivate: false})
+	if err != nil {
+		return "", err
+	}
+	parsed, err := url.Parse(validated)
+	if err != nil {
+		return "", err
+	}
+	if isBlockedImageDownloadHost(parsed.Hostname()) {
+		return "", fmt.Errorf("image url host is not allowed: %s", parsed.Hostname())
+	}
+	return validated, nil
+}
+
+// isBlockedImageDownloadHost also rejects metadata aliases and non-public literal ranges.
+// DNS answers are validated and pinned by the injected download client's transport.
+func isBlockedImageDownloadHost(host string) bool {
+	host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
+	if urlvalidator.IsBlockedHost(host) || isBlockedHostname(host) {
+		return true
+	}
+	if ip := net.ParseIP(stripIPv6Zone(host)); ip != nil {
+		return isPrivateIP(ip)
+	}
+	return false
+}
+
+func stripIPv6Zone(host string) string {
+	if i := strings.LastIndexByte(host, '%'); i >= 0 {
+		return host[:i]
+	}
+	return host
 }
 
 // Rewrite 将 result（上游生图响应 JSON）里的每张图片转存到对象存储，
