@@ -134,7 +134,7 @@ type RefundPlan struct {
 	BalanceToDeduct float64
 	SubDaysToDeduct int
 	SubscriptionID  int64
-	// deductionHeld 表示扣减已在进入 REFUND_PENDING 前执行并保留，终态收敛时不再重复扣减。
+	// deductionHeld 表示本次或历史尝试的扣减尚未归还；跨重试保留原金额/订阅，不能重复扣减。
 	deductionHeld bool
 }
 

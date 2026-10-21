@@ -312,42 +312,17 @@ func (s *PaymentService) ExecuteRefund(ctx context.Context, p *RefundPlan) (*Ref
 	if c == 0 {
 		return nil, infraerrors.Conflict("CONFLICT", "order status changed")
 	}
-	if p.DeductionType == payment.DeductionTypeBalance && p.BalanceToDeduct > 0 {
-		// Skip balance deduction on retry if previous attempt already deducted
-		// but failed to roll back (REFUND_ROLLBACK_FAILED in audit log).
-		if !s.hasAuditLog(ctx, p.OrderID, "REFUND_ROLLBACK_FAILED") {
-			deducted, err := s.deductAvailableBalance(ctx, p.Order.UserID, p.BalanceToDeduct)
-			if err != nil {
-				s.restoreStatus(ctx, p)
-				return nil, fmt.Errorf("deduction: %w", err)
-			}
-			p.BalanceToDeduct = deducted
-			s.invalidateRefundBalanceCache(ctx, p.Order.UserID)
-		} else {
-			slog.Warn("skipping balance deduction on retry (previous rollback failed)", "orderID", p.OrderID)
-			p.BalanceToDeduct = 0
-		}
+	if err := s.restoreRefundHeldDeduction(ctx, p); err != nil {
+		s.restoreStatus(ctx, p)
+		return nil, err
 	}
-	if p.DeductionType == payment.DeductionTypeSubscription && p.SubDaysToDeduct > 0 && p.SubscriptionID > 0 {
-		if !s.hasAuditLog(ctx, p.OrderID, "REFUND_ROLLBACK_FAILED") {
-			_, err := s.subscriptionSvc.ExtendSubscription(ctx, p.SubscriptionID, -p.SubDaysToDeduct)
-			if err != nil {
-				if errors.Is(err, ErrAdjustWouldExpire) {
-					// Deduction would expire the subscription — revoke it entirely
-					slog.Info("subscription deduction would expire, revoking", "orderID", p.OrderID, "subID", p.SubscriptionID, "days", p.SubDaysToDeduct)
-					if revokeErr := s.subscriptionSvc.RevokeSubscription(ctx, p.SubscriptionID); revokeErr != nil {
-						s.restoreStatus(ctx, p)
-						return nil, fmt.Errorf("revoke subscription: %w", revokeErr)
-					}
-				} else {
-					// Other errors (DB failure, not found) — abort refund
-					s.restoreStatus(ctx, p)
-					return nil, fmt.Errorf("deduct subscription days: %w", err)
-				}
-			}
-		} else {
-			slog.Warn("skipping subscription deduction on retry (previous rollback failed)", "orderID", p.OrderID)
-			p.SubDaysToDeduct = 0
+	if !p.deductionHeld {
+		if err := s.applyRefundFinalDeduction(ctx, p); err != nil {
+			s.restoreStatus(ctx, p)
+			return nil, err
+		}
+		if p.DeductionType == payment.DeductionTypeBalance && p.BalanceToDeduct > 0 {
+			s.invalidateRefundBalanceCache(ctx, p.Order.UserID)
 		}
 	}
 	resp, err := s.gwRefund(ctx, p)
@@ -636,17 +611,16 @@ func (s *PaymentService) finalizeRefundFailedTx(ctx context.Context, p *RefundPl
 			return err, nil
 		}
 	}
+	detail := refundDeductionAuditFields(p, rollbackErr != nil)
 	if rollbackErr != nil {
-		if err := createPaymentAuditLogTx(txCtx, tx.Client(), p.OrderID, "REFUND_ROLLBACK_FAILED", map[string]any{
-			"gatewayError":    psErrMsg(gErr),
-			"rollbackError":   psErrMsg(rollbackErr),
-			"balanceDeducted": p.BalanceToDeduct,
-			"subDaysDeducted": p.SubDaysToDeduct,
-		}); err != nil {
+		detail["gatewayError"] = psErrMsg(gErr)
+		detail["rollbackError"] = psErrMsg(rollbackErr)
+		if err := createPaymentAuditLogTx(txCtx, tx.Client(), p.OrderID, "REFUND_ROLLBACK_FAILED", detail); err != nil {
 			return nil, err
 		}
 	}
-	if err := createPaymentAuditLogTx(txCtx, tx.Client(), p.OrderID, "REFUND_FAILED", map[string]any{"detail": psErrMsg(gErr)}); err != nil {
+	detail["detail"] = psErrMsg(gErr)
+	if err := createPaymentAuditLogTx(txCtx, tx.Client(), p.OrderID, "REFUND_FAILED", detail); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -867,7 +841,7 @@ func (s *PaymentService) RollbackRefund(ctx context.Context, p *RefundPlan, gErr
 	if p.DeductionType == payment.DeductionTypeBalance && p.BalanceToDeduct > 0 {
 		if err := s.userRepo.UpdateBalance(ctx, p.Order.UserID, p.BalanceToDeduct); err != nil {
 			slog.Error("[CRITICAL] rollback failed", "orderID", p.OrderID, "amount", p.BalanceToDeduct, "error", err)
-			s.writeAuditLog(ctx, p.OrderID, "REFUND_ROLLBACK_FAILED", "admin", map[string]any{"gatewayError": psErrMsg(gErr), "rollbackError": psErrMsg(err), "balanceDeducted": p.BalanceToDeduct})
+			s.recordRefundRollbackFailure(ctx, p, refundRollbackFailure{gatewayErr: gErr, rollbackErr: err})
 			return false
 		}
 		s.invalidateRefundBalanceCache(ctx, p.Order.UserID)
@@ -875,7 +849,7 @@ func (s *PaymentService) RollbackRefund(ctx context.Context, p *RefundPlan, gErr
 	if p.DeductionType == payment.DeductionTypeSubscription && p.SubDaysToDeduct > 0 && p.SubscriptionID > 0 {
 		if _, err := s.subscriptionSvc.ExtendSubscription(ctx, p.SubscriptionID, p.SubDaysToDeduct); err != nil {
 			slog.Error("[CRITICAL] subscription rollback failed", "orderID", p.OrderID, "subID", p.SubscriptionID, "days", p.SubDaysToDeduct, "error", err)
-			s.writeAuditLog(ctx, p.OrderID, "REFUND_ROLLBACK_FAILED", "admin", map[string]any{"gatewayError": psErrMsg(gErr), "rollbackError": psErrMsg(err), "subDaysDeducted": p.SubDaysToDeduct})
+			s.recordRefundRollbackFailure(ctx, p, refundRollbackFailure{gatewayErr: gErr, rollbackErr: err})
 			return false
 		}
 	}
@@ -884,8 +858,8 @@ func (s *PaymentService) RollbackRefund(ctx context.Context, p *RefundPlan, gErr
 
 func (s *PaymentService) restoreStatus(ctx context.Context, p *RefundPlan) {
 	rs := OrderStatusCompleted
-	if p.Order.Status == OrderStatusRefundRequested {
-		rs = OrderStatusRefundRequested
+	if p.Order.Status == OrderStatusRefundRequested || p.Order.Status == OrderStatusRefundFailed {
+		rs = p.Order.Status
 	}
 	_, _ = s.entClient.PaymentOrder.UpdateOneID(p.OrderID).SetStatus(rs).Save(ctx)
 }
