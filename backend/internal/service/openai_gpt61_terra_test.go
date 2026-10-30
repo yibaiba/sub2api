@@ -143,7 +143,6 @@ func TestGPT61TerraChatFallbackRejectsTools(t *testing.T) {
 		}
 	}
 }
-
 func TestGPT61TerraRejectsMinimalEffort(t *testing.T) {
 	require.True(t, openai.IsGPT61TerraModelSpelling("openai/GPT-6.1-Terra-minimal"))
 	require.Equal(t, "gpt-6.1-terra", normalizeKnownOpenAICodexModel("gpt-6.1-terra-minimal"))
