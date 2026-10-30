@@ -590,20 +590,6 @@ func (s *BillingService) initFallbackPricing() {
 		LongContextOutputMultiplier:        1.5,
 	}
 	// GPT-6 Sol/Luna official rates, 2026-09-22.
-	s.fallbackPrices["gpt-6.1-terra"] = &ModelPricing{
-		InputPricePerToken:                 1e-6,
-		InputPricePerTokenPriority:         2e-6,
-		OutputPricePerToken:                5e-6,
-		OutputPricePerTokenPriority:        10e-6,
-		CacheCreationPricePerToken:         1.25e-6,
-		CacheCreationPricePerTokenPriority: 2.5e-6,
-		CacheReadPricePerToken:             0.05e-6,
-		CacheReadPricePerTokenPriority:     0.1e-6,
-		CacheCreationPriceExplicit:         true,
-		LongContextInputThreshold:          272_000,
-		LongContextInputMultiplier:         2,
-		LongContextOutputMultiplier:        1.5,
-	}
 	s.fallbackPrices["gpt-6.1-sol"] = &ModelPricing{
 		InputPricePerToken:                 2e-6,
 		InputPricePerTokenPriority:         4e-6,
