@@ -129,7 +129,7 @@ func TestPrepareUsageLogInsert_UpstreamRequestIDArgWiring(t *testing.T) {
 	})
 	require.Len(t, prepared.args, len(usageLogInsertArgTypes))
 
-	idx := len(prepared.args) - 5
+	idx := len(prepared.args) - 7
 	arg, ok := prepared.args[idx].(sql.NullString)
 	require.True(t, ok, "upstream_request_id arg should be sql.NullString, got %T", prepared.args[idx])
 	require.True(t, arg.Valid)
@@ -142,4 +142,24 @@ func TestPrepareUsageLogInsert_UpstreamRequestIDArgWiring(t *testing.T) {
 	require.False(t, nullArg.Valid, "absent upstream request id must be NULL")
 
 	require.Contains(t, usageLogSelectColumns, "upstream_request_id")
+}
+
+func TestPrepareUsageLogInsert_SettlementAndCacheTTLsStayAligned(t *testing.T) {
+	createdAt := time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC)
+	prepared := prepareUsageLogInsert(&service.UsageLog{
+		RequestID:              "settlement-with-cache-ttls",
+		BillingStatus:          service.UsageBillingStatusUnsettled,
+		NativeCompactionV2:     true,
+		CacheCreation30mTokens: 37,
+		CacheCreation12hTokens: 53,
+		CreatedAt:              createdAt,
+	})
+
+	require.Len(t, prepared.args, len(usageLogInsertArgTypes))
+	require.Equal(t, []any{service.UsageBillingStatusUnsettled, true, 37, 53, createdAt},
+		prepared.args[len(prepared.args)-5:])
+	require.Equal(t, []string{"text", "boolean", "integer", "integer", "timestamptz"},
+		usageLogInsertArgTypes[len(usageLogInsertArgTypes)-5:])
+	require.True(t, strings.HasSuffix(usageLogSelectColumns,
+		"billing_status, native_compaction_v2, cache_creation_30m_tokens, cache_creation_12h_tokens, created_at"))
 }

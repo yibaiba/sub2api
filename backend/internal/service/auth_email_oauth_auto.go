@@ -87,7 +87,8 @@ func (s *AuthService) loginOrRegisterVerifiedEmailOAuth(
 		return nil, nil, ErrEmailReserved
 	}
 	if providerType != "wecom" {
-		if err := s.validateRegistrationEmailPolicy(ctx, email); err != nil {
+		// Exact blacklisting applies only to new accounts, not existing OAuth logins.
+		if err := s.validateRegistrationEmailSuffixPolicy(ctx, email); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -160,6 +161,9 @@ func (s *AuthService) loginOrRegisterVerifiedEmailOAuth(
 func (s *AuthService) createEmailOAuthUser(ctx context.Context, email, username, providerType, invitationCode, affiliateCode string) (*User, error) {
 	if err := s.ensureEmailOAuthAutoSignupAllowed(ctx, providerType); err != nil {
 		return nil, err
+	}
+	if s.settingService.IsRegistrationEmailBlacklisted(ctx, email) {
+		return nil, ErrEmailBlocked
 	}
 	invitationRedeemCode, err := s.validateOAuthRegistrationInvitation(ctx, invitationCode, providerType)
 	if err != nil {
