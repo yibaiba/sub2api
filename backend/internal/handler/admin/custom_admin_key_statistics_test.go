@@ -67,6 +67,49 @@ func TestScopedAdminOpenAIRejectsBeforeUpstream(t *testing.T) {
 	require.Zero(t, stub.sends)
 }
 
+func TestScopedAdminReferralResponseRedactionDoesNotTruncateSharedSnapshot(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name, permission, path, body string
+		invite                       bool
+	}{
+		{name: "refresh", permission: "openai.referrals.read", path: "/1/refresh"},
+		{name: "invite", permission: "openai.referrals.invite", path: "/1/invite", body: `{"email":"friend@example.com","program_id":"codex_referral_consumer","confirmed":true}`, invite: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			count := 2
+			svc := &scopedStatisticsAccounts{accounts: map[int64]*service.Account{1: {ID: 1, Platform: "openai", Type: "oauth", GroupIDs: []int64{1}}}}
+			stub := &referralHandlerStub{eligibility: &service.OpenAIReferralEligibility{
+				ShouldShow: true, AvailableInvites: &count, ProgramID: "codex_referral_consumer",
+				Title: "CACHE_SECRET", Description: "CACHE_DESCRIPTION", Rules: []string{"CACHE_RULE"},
+			}}
+			h := &OpenAIOAuthHandler{adminService: svc, referralService: stub}
+			r := gin.New()
+			r.Use(func(c *gin.Context) {
+				statisticsContext(c, tc.permission)
+				if tc.invite {
+					p := adminaccess.FromContext(c.Request.Context())
+					p.Policy.Rules[0].Permissions = append(p.Policy.Rules[0].Permissions, "openai.referrals.read")
+				}
+			})
+			r.POST("/:id/refresh", h.RefreshReferrals)
+			r.POST("/:id/invite", h.SendReferralInvite)
+
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, httptest.NewRequest("POST", tc.path, strings.NewReader(tc.body)))
+
+			require.Equal(t, 200, w.Code, w.Body.String())
+			require.NotContains(t, w.Body.String(), "CACHE_SECRET")
+			require.NotContains(t, w.Body.String(), "CACHE_DESCRIPTION")
+			require.NotContains(t, w.Body.String(), "CACHE_RULE")
+			require.NotNil(t, stub.cached)
+			require.Equal(t, "CACHE_SECRET", stub.cached.Title)
+			require.Equal(t, "CACHE_DESCRIPTION", stub.cached.Description)
+			require.Equal(t, []string{"CACHE_RULE"}, stub.cached.Rules)
+		})
+	}
+}
+
 func TestScopedAdminUsageProjectionKeepsPlatformQuotaAndHidesCosts(t *testing.T) {
 	a := &service.Account{ID: 1, Platform: "openai", Type: "oauth", GroupIDs: []int64{1}}
 	u := &service.UsageInfo{FiveHour: &service.UsageProgress{Utilization: 25, WindowStats: &service.WindowStats{Cost: 123}}, SevenDaySonnet: &service.UsageProgress{Utilization: 30}, GeminiProDaily: &service.UsageProgress{Utilization: 40}, AntigravityQuota: map[string]*service.AntigravityModelQuota{"model": {Utilization: 50}}, Error: "TOKEN_SECRET", ValidationURL: "URL_SECRET", ForbiddenReason: "IDENTITY_SECRET"}
