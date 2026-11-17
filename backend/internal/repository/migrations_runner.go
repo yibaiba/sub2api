@@ -264,7 +264,7 @@ func applyMigrationsFS(ctx context.Context, db *sql.DB, fsys fs.FS) error {
 		}
 
 		// 执行迁移 SQL
-		if _, err := tx.ExecContext(ctx, content); err != nil {
+		if _, err := tx.ExecContext(ctx, transactionalMigrationSQL(content)); err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("apply migration %s: %w", name, err)
 		}
@@ -542,6 +542,22 @@ func validateMigrationExecutionMode(name, content string) (bool, error) {
 	}
 
 	return true, nil
+}
+
+// transactionalMigrationSQL leaves transaction ownership with the runner.
+// Historical migration 194 includes its own outer BEGIN/COMMIT; executing that
+// COMMIT would commit the DDL before its checksum record and break tx.Commit.
+// Keep the immutable file/checksum intact and remove only the paired wrapper,
+// never BEGIN/END inside dollar-quoted procedure bodies.
+func transactionalMigrationSQL(content string) string {
+	const begin = "BEGIN;"
+	const commit = "COMMIT;"
+	if len(content) < len(begin)+len(commit) ||
+		!strings.EqualFold(content[:len(begin)], begin) ||
+		!strings.EqualFold(content[len(content)-len(commit):], commit) {
+		return content
+	}
+	return strings.TrimSpace(content[len(begin) : len(content)-len(commit)])
 }
 
 func splitSQLStatements(content string) []string {
