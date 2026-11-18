@@ -113,6 +113,14 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletionsWithStartTime(
 	if normalizedBody, normalized := NormalizeGLMOpenAIReasoningEffort(upstreamBody, upstreamModel); normalized {
 		upstreamBody = normalizedBody
 	}
+	// GPT-6.2 rejects the same sampling fields on both API protocols.
+	if openai.GPT62ModelID(upstreamModel) != "" {
+		normalizedBody, _, err := normalizeGPT6ResponsesSampling(upstreamBody, upstreamModel)
+		if err != nil {
+			return nil, fmt.Errorf("normalize GPT-6.2 chat sampling: %w", err)
+		}
+		upstreamBody = normalizedBody
+	}
 
 	// 4. Apply OpenAI fast policy on the CC body
 	updatedBody, policyErr := s.applyOpenAIFastPolicyToBody(ctx, account, upstreamModel, upstreamBody)
