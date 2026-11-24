@@ -30,6 +30,7 @@ func TestAdminUsageViewerScope(t *testing.T) {
 		{name: "usage_viewer_rejects_compliance_status", role: service.RoleUsageViewer, method: http.MethodGet, path: "/api/v1/admin/compliance", wantStatus: http.StatusForbidden},
 		{name: "usage_viewer_rejects_compliance_accept", role: service.RoleUsageViewer, method: http.MethodPost, path: "/api/v1/admin/compliance/accept", wantStatus: http.StatusForbidden},
 		{name: "usage_viewer_rejects_account_update", role: service.RoleUsageViewer, method: http.MethodPut, path: "/api/v1/admin/accounts/123", wantStatus: http.StatusForbidden},
+		{name: "usage_viewer_rejects_upstream_group_preview", role: service.RoleUsageViewer, method: http.MethodPost, path: "/api/v1/admin/accounts/upstream-billing-probe/group-preview", wantStatus: http.StatusForbidden},
 		{name: "usage_viewer_rejects_group_list", role: service.RoleUsageViewer, method: http.MethodGet, path: "/api/v1/admin/groups", wantStatus: http.StatusForbidden},
 		{name: "usage_viewer_rejects_similar_prefix", role: service.RoleUsageViewer, method: http.MethodGet, path: "/api/v1/admin/accounts/data", wantStatus: http.StatusForbidden},
 		{name: "regular_user_rejected", role: service.RoleUser, method: http.MethodGet, path: "/api/v1/admin/accounts", wantStatus: http.StatusForbidden},
